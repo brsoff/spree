@@ -72,10 +72,10 @@ module Spree
       if variant.should_track_inventory?
         on_hand, back_order = shipment.stock_location.fill_status(variant, quantity)
 
-        on_hand.times { shipment.set_up_inventory('on_hand', variant, order, line_item) }
-        back_order.times { shipment.set_up_inventory('backordered', variant, order, line_item) }
+        shipment.set_up_inventory('on_hand', variant, order, line_item, on_hand) unless on_hand.zero?
+        shipment.set_up_inventory('backordered', variant, order, line_item, back_order) unless back_order.zero?
       else
-        quantity.times { shipment.set_up_inventory('on_hand', variant, order, line_item) }
+        shipment.set_up_inventory('on_hand', variant, order, line_item, quantity)
       end
 
       # adding to this shipment, and removing from stock_location
@@ -89,20 +89,32 @@ module Spree
     def remove_from_shipment(shipment, quantity)
       return 0 if quantity.zero? || shipment.shipped?
 
-      shipment_units = shipment.inventory_units_for_item(line_item, variant).reject(&:shipped?).sort_by(&:state)
+      shipment_units = shipment.
+                       inventory_units_for_item(line_item, variant).
+                       reject(&:shipped?).
+                       sort_by(&:state)
 
+      remaining_quantity = quantity
       removed_quantity = 0
 
       shipment_units.each do |inventory_unit|
-        inventory_unit.quantity.times do
-          break if removed_quantity == quantity
-          if inventory_unit.quantity > 1
-            inventory_unit.decrement(:quantity)
-          else
-            inventory_unit.destroy
-          end
-          removed_quantity += 1
-        end
+        break if removed_quantity == quantity
+
+        unit_quantity = inventory_unit.quantity
+
+        quantity_to_remove = if remaining_quantity == unit_quantity
+                               inventory_unit.destroy
+                               remaining_quantity
+                             elsif remaining_quantity > unit_quantity
+                               inventory_unit.decrement(:quantity, unit_quantity)
+                               unit_quantity
+                             else
+                               inventory_unit.decrement(:quantity, remaining_quantity)
+                               remaining_quantity
+                             end
+
+        removed_quantity += quantity_to_remove
+        remaining_quantity = quantity - removed_quantity
       end
 
       shipment.destroy if shipment.inventory_units.sum(:quantity).zero?

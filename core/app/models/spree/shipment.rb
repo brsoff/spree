@@ -240,12 +240,13 @@ module Spree
       save!
     end
 
-    def set_up_inventory(state, variant, order, line_item)
+    def set_up_inventory(state, variant, order, line_item, quantity = 1)
       inventory_units.create(
         state: state,
         variant_id: variant.id,
         order_id: order.id,
-        line_item_id: line_item.id
+        line_item_id: line_item.id,
+        quantity: quantity
       )
     end
 
